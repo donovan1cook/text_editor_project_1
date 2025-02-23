@@ -75,6 +75,7 @@ int getWindowSize(int *rows, int *cols) {
 
 void editorDrawRows() {
     int y;
+    for (y = 0; y < E.screenrows; y++) {
     for (y = 0; y < 24; y++) {
       write(STDOUT_FILENO, "~\r\n", 3);
     }
@@ -102,8 +103,13 @@ void editorProcessKeypress() {
 
 /*** init ***/
 
+void initEditor() {
+    if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");
+  }
+
 int main() {
   enableRawMode();
+  initEditor();
 
   while (1) {
     editorRefreshScreen();

@@ -66,7 +66,10 @@ struct editorConfig {
 struct editorConfig E;
 
 /*** prototypes ***/
+
 void editorSetStatusMessage(const char *fmt, ...);
+void editorRefreshScreen();
+char *editorPrompt(char *prompt);
 
 /*** terminal ***/
 
@@ -363,7 +366,13 @@ void editorOpen(char *filename) {
 }
 
 void editorSave() {
-  if (E.filename == NULL) return;
+  if (E.filename == NULL) {
+    E.filename = editorPrompt("Save as: %s (ESC to cancel)");
+    if (E.filename == NULL) {
+      editorSetStatusMessage("Save aborted");
+      return;
+    }
+  }
 
   int len;
   char *buf = editorRowsToString(&len);
@@ -522,8 +531,43 @@ void editorSetStatusMessage(const char *fmt, ...) {
   E.statusmsg_time = time(NULL);
 }
 
+void editorRefreshScreen();
 
   /*** input ***/
+
+  char *editorPrompt(char *prompt) {
+    size_t bufsize = 128;
+    char *buf = malloc(bufsize);
+
+    size_t buflen = 0;
+    buf[0] = '\0';
+
+    while (1) {
+      editorSetStatusMessage(prompt, buf);
+      editorRefreshScreen();
+
+      int c = editorReadKey();
+      if (c == DEL_KEY || c == CTRL_KEY('h') || c == BACKSPACE) {
+        if (buflen != 0) buf[--buflen] = '\0';
+      } else if (c == '\x1b') {
+        editorSetStatusMessage("");
+        free(buf);
+        return NULL;
+      } else if (c == '\r') {
+        if (buflen != 0) {
+          editorSetStatusMessage("");
+          return buf;
+        }
+      } else if (!iscntrl(c) && c < 128) {
+        if (buflen == bufsize - 1) {
+          bufsize *= 2;
+          buf = realloc(buf, bufsize);
+        }
+        buf[buflen++] = c;
+        buf[buflen] = '\0';
+      }
+    }
+  }
 
   void editorMoveCursor(int key) {
     erow *row = (E.cy >= E.numrows) ? NULL : &E.row[E.cy];
@@ -560,22 +604,22 @@ void editorSetStatusMessage(const char *fmt, ...) {
   }
 
   void editorProcessKeypress() {
-    #define KILO_QUIT_TIMES 3
+    static int quit_times = KILO_QUIT_TIMES;
 
     int c = editorReadKey();
 
     switch (c) {
       case '\r':
-        /* TODO */
+        editorInsertNewline();
         break;
 
       case CTRL_KEY('q'):
         if (E.dirty && quit_times > 0) {
           editorSetStatusMessage("WARNING!!! File has unsaved changes. "
             "Press Ctrl-Q %d more times to quit.", quit_times);
-        quit_times--;
-        return;
-      }
+          quit_times--;
+          return;
+        }
         write(STDOUT_FILENO, "\x1b[2J", 4);
         write(STDOUT_FILENO, "\x1b[H", 3);
         exit(0);
@@ -594,12 +638,12 @@ void editorSetStatusMessage(const char *fmt, ...) {
           E.cx = E.row[E.cy].size;
         break;
 
-        case BACKSPACE:
-        case CTRL_KEY('h'):
-        case DEL_KEY:
-          if (c == DEL_KEY) editorMoveCursor(ARROW_RIGHT);
-          editorDelChar();
-          break;
+      case BACKSPACE:
+      case CTRL_KEY('h'):
+      case DEL_KEY:
+        if (c == DEL_KEY) editorMoveCursor(ARROW_RIGHT);
+        editorDelChar();
+        break;
 
       case PAGE_UP:
       case PAGE_DOWN:
@@ -615,7 +659,6 @@ void editorSetStatusMessage(const char *fmt, ...) {
             editorMoveCursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
         }
         break;
-    
 
       case ARROW_UP:
       case ARROW_DOWN:
@@ -627,10 +670,11 @@ void editorSetStatusMessage(const char *fmt, ...) {
       case CTRL_KEY('l'):
       case '\x1b':
         break;
-      
+        
       default:
         editorInsertChar(c);
         break;
+
     }
 
     quit_times = KILO_QUIT_TIMES;
